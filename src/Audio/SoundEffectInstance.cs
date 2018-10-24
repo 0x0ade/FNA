@@ -52,6 +52,10 @@ namespace Microsoft.Xna.Framework.Audio
 			}
 			set
 			{
+				if (value > 1.0f || value < -1.0f)
+				{
+					throw new ArgumentOutOfRangeException("value");
+				}
 				INTERNAL_pan = value;
 				if (is3D)
 				{
@@ -102,7 +106,8 @@ namespace Microsoft.Xna.Framework.Audio
 					FAudio.FAudioVoiceState state;
 					FAudio.FAudioSourceVoice_GetState(
 						handle,
-						out state
+						out state,
+						FAudio.FAUDIO_VOICE_NOSAMPLESPLAYED
 					);
 					if (state.BuffersQueued == 0)
 					{
@@ -151,6 +156,13 @@ namespace Microsoft.Xna.Framework.Audio
 		private bool is3D;
 		private bool usingReverb;
 		private FAudio.F3DAUDIO_DSP_SETTINGS dspSettings;
+
+		#endregion
+
+		#region memset Entry Point
+
+		[DllImport("msvcrt", CallingConvention = CallingConvention.Cdecl)]
+		private static extern IntPtr memset(IntPtr ptr, int value, IntPtr num);
 
 		#endregion
 
@@ -427,6 +439,12 @@ namespace Microsoft.Xna.Framework.Audio
 				(int) dspSettings.SrcChannelCount *
 				(int) dspSettings.DstChannelCount
 			);
+			memset(
+				dspSettings.pMatrixCoefficients,
+				'\0',
+				(IntPtr) (4 * dspSettings.SrcChannelCount * dspSettings.DstChannelCount)
+			);
+			SetPanMatrixCoefficients();
 		}
 
 		internal unsafe void INTERNAL_applyReverb(float rvGain)
@@ -445,7 +463,10 @@ namespace Microsoft.Xna.Framework.Audio
 			// Re-using this float array...
 			float* outputMatrix = (float*) dspSettings.pMatrixCoefficients;
 			outputMatrix[0] = rvGain;
-			outputMatrix[1] = rvGain;
+			if (dspSettings.SrcChannelCount == 2)
+			{
+				outputMatrix[1] = rvGain;
+			}
 			FAudio.FAudioVoice_SetOutputMatrix(
 				handle,
 				SoundEffect.Device().ReverbVoice,
@@ -536,126 +557,54 @@ namespace Microsoft.Xna.Framework.Audio
 
 		private unsafe void SetPanMatrixCoefficients()
 		{
+			/* Two major things to notice:
+			 * 1. The spec assumes any speaker count >= 2 has Front Left/Right.
+			 * 2. Stereo panning is WAY more complicated than you think.
+			 *    The main thing is that hard panning does NOT eliminate an
+			 *    entire channel; the two channels are blended on each side.
+			 * Aside from that, XNA is pretty naive about the output matrix.
+			 * -flibit
+			 */
 			float* outputMatrix = (float*) dspSettings.pMatrixCoefficients;
-			FAudio.FAudioWaveFormatEx fmt = isDynamic ?
-				(this as DynamicSoundEffectInstance).format :
-				parentEffect.format;
-
-			float left = (INTERNAL_pan > 0.0f) ? (1.0f - INTERNAL_pan) : 1.0f;
-			float right = (INTERNAL_pan < 0.0f) ? (1.0f  + INTERNAL_pan) : 1.0f;
-
-			uint dwChannelMask = SoundEffect.Device().DeviceDetails.OutputFormat.dwChannelMask;
-			if (fmt.nChannels == 1)
+			if (dspSettings.SrcChannelCount == 1)
 			{
-				if (dwChannelMask == FAudio.SPEAKER_MONO)
+				if (dspSettings.DstChannelCount == 1)
 				{
 					outputMatrix[0] = 1.0f;
-					return;
 				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_LEFT) != 0)
+				else
 				{
-					*outputMatrix++ = left;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_RIGHT) != 0)
-				{
-					*outputMatrix++ = right;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_CENTER) != 0)
-				{
-					outputMatrix++;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_LOW_FREQUENCY) != 0)
-				{
-					outputMatrix++;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_BACK_LEFT) != 0)
-				{
-					*outputMatrix++ = left;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_BACK_RIGHT) != 0)
-				{
-					*outputMatrix++ = right;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_LEFT_OF_CENTER) != 0)
-				{
-					*outputMatrix++ = left;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_RIGHT_OF_CENTER) != 0)
-				{
-					*outputMatrix++ = right;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_BACK_CENTER) != 0)
-				{
-					outputMatrix++;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_SIDE_LEFT) != 0)
-				{
-					*outputMatrix++ = left;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_SIDE_RIGHT) != 0)
-				{
-					*outputMatrix++ = right;
+					outputMatrix[0] = (INTERNAL_pan > 0.0f) ? (1.0f - INTERNAL_pan) : 1.0f;
+					outputMatrix[1] = (INTERNAL_pan < 0.0f) ? (1.0f  + INTERNAL_pan) : 1.0f;
 				}
 			}
 			else
 			{
-				if (dwChannelMask == FAudio.SPEAKER_MONO)
+				if (dspSettings.DstChannelCount == 1)
 				{
 					outputMatrix[0] = 1.0f;
 					outputMatrix[1] = 1.0f;
-					return;
 				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_LEFT) != 0)
+				else
 				{
-					*outputMatrix++ = left;
-					*outputMatrix++ = 0.0f;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_RIGHT) != 0)
-				{
-					*outputMatrix++ = 0.0f;
-					*outputMatrix++ = right;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_CENTER) != 0)
-				{
-					outputMatrix += 2;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_LOW_FREQUENCY) != 0)
-				{
-					outputMatrix += 2;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_BACK_LEFT) != 0)
-				{
-					*outputMatrix++ = left;
-					*outputMatrix++ = 0.0f;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_BACK_RIGHT) != 0)
-				{
-					*outputMatrix++ = 0.0f;
-					*outputMatrix++ = right;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_LEFT_OF_CENTER) != 0)
-				{
-					*outputMatrix++ = left;
-					*outputMatrix++ = 0.0f;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_FRONT_RIGHT_OF_CENTER) != 0)
-				{
-					*outputMatrix++ = 0.0f;
-					*outputMatrix++ = right;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_BACK_CENTER) != 0)
-				{
-					outputMatrix += 2;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_SIDE_LEFT) != 0)
-				{
-					*outputMatrix++ = left;
-					*outputMatrix++ = 0.0f;
-				}
-				if ((dwChannelMask & FAudio.SPEAKER_SIDE_RIGHT) != 0)
-				{
-					*outputMatrix++ = 0.0f;
-					*outputMatrix++ = right;
+					if (INTERNAL_pan <= 0.0f)
+					{
+						// Left speaker blends left/right channels
+						outputMatrix[0] = 0.5f * INTERNAL_pan + 1.0f;
+						outputMatrix[1] = 0.5f * -INTERNAL_pan;
+						// Right speaker gets less of the right channel
+						outputMatrix[2] = 0.0f;
+						outputMatrix[3] = INTERNAL_pan + 1.0f;
+					}
+					else
+					{
+						// Left speaker gets less of the left channel
+						outputMatrix[0] = -INTERNAL_pan + 1.0f;
+						outputMatrix[1] = 0.0f;
+						// Right speaker blends right/left channels
+						outputMatrix[2] = 0.5f * INTERNAL_pan;
+						outputMatrix[3] = 0.5f * -INTERNAL_pan + 1.0f;
+					}
 				}
 			}
 		}

@@ -76,12 +76,12 @@ namespace Microsoft.Xna.Framework
 			 * this really only matters on desktop where the game
 			 * screen may not be covering the whole display.
 			 */
-                        if (    OSVersion.Equals("Windows") ||
-                                OSVersion.Equals("Mac OS X") ||
-                                OSVersion.Equals("Linux") ||
-                                OSVersion.Equals("FreeBSD") ||
-                                OSVersion.Equals("OpenBSD") ||
-                                OSVersion.Equals("NetBSD")      )
+			if (	OSVersion.Equals("Windows") ||
+				OSVersion.Equals("Mac OS X") ||
+				OSVersion.Equals("Linux") ||
+				OSVersion.Equals("FreeBSD") ||
+				OSVersion.Equals("OpenBSD") ||
+				OSVersion.Equals("NetBSD")	)
 			{
 				SupportsGlobalMouse = true;
 			}
@@ -860,8 +860,15 @@ namespace Microsoft.Xna.Framework
 						}
 						else if (evt.window.windowEvent == SDL.SDL_WindowEventID.SDL_WINDOWEVENT_RESIZED)
 						{
-							// This is only called on WM resizes, right after SIZE_CHANGED
-							((FNAWindow) game.Window).INTERNAL_ClientSizeChanged();
+							/* This should be called on user resize only, NOT ApplyChanges!
+							 * Sadly some window managers are idiots and fire events anyway.
+							 * Also ignore any other "resizes" (alt-tab, fullscreen, etc.)
+							 * -flibit
+							 */
+							if (GetWindowResizable(game.Window.Handle))
+							{
+								((FNAWindow) game.Window).INTERNAL_ClientSizeChanged();
+							}
 						}
 						else if (evt.window.windowEvent == SDL.SDL_WindowEventID.SDL_WINDOWEVENT_EXPOSED)
 						{
@@ -1262,6 +1269,90 @@ namespace Microsoft.Xna.Framework
 			return SDL.SDL_GetPrefPath(null, exeName);
 		}
 
+		public static DriveInfo GetDriveInfo(string storageRoot)
+		{
+			if (OSVersion.Equals("WinRT"))
+			{
+				// WinRT DriveInfo is a bunch of crap -flibit
+				return null;
+			}
+
+			DriveInfo result;
+			try
+			{
+				result = new DriveInfo(MonoPathRootWorkaround(storageRoot));
+			}
+			catch(Exception e)
+			{
+				FNALoggerEXT.LogError("Failed to get DriveInfo: " + e.ToString());
+				result = null;
+			}
+			return result;
+		}
+
+		private static string MonoPathRootWorkaround(string storageRoot)
+		{
+			if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+			{
+				// This is what we should be doing everywhere...
+				return Path.GetPathRoot(storageRoot);
+			}
+
+			// This is stolen from Mono's Path.cs
+			if (storageRoot == null)
+			{
+				return null;
+			}
+			if (storageRoot.Trim().Length == 0)
+			{
+				throw new ArgumentException("The specified path is not of a legal form.");
+			}
+			if (!Path.IsPathRooted(storageRoot))
+			{
+				return string.Empty;
+			}
+
+			/* FIXME: Mono bug!
+			 *
+			 * For Unix, the Mono Path.GetPathRoot is pretty lazy:
+			 * https://github.com/mono/mono/blob/master/mcs/class/corlib/System.IO/Path.cs#L443
+			 * It should actually be checking the drives and
+			 * comparing them to the provided path.
+			 * If a Mono maintainer is reading this, please steal
+			 * this code so we don't have to hack around Mono!
+			 *
+			 * -flibit
+			 */
+			int drive = -1, length = 0;
+			string[] drives = Environment.GetLogicalDrives();
+			for (int i = 0; i < drives.Length; i += 1)
+			{
+				if (string.IsNullOrEmpty(drives[i]))
+				{
+					// ... What?
+					continue;
+				}
+				string name = drives[i];
+				if (name[name.Length - 1] != Path.DirectorySeparatorChar)
+				{
+					name += Path.DirectorySeparatorChar;
+				}
+				if (	storageRoot.StartsWith(name) &&
+					name.Length > length	)
+				{
+					drive = i;
+					length = name.Length;
+				}
+			}
+			if (drive >= 0)
+			{
+				return drives[drive];
+			}
+
+			// Uhhhhh
+			return Path.GetPathRoot(storageRoot);
+		}
+
 		#endregion
 
 		#region Logging/Messaging Methods
@@ -1290,9 +1381,10 @@ namespace Microsoft.Xna.Framework
 			bool zoom = false
 		) {
 			// Load the SDL_Surface* from RWops, get the image data
-			FakeRWops reader = new FakeRWops(stream);
-			IntPtr surface = SDL_image.IMG_Load_RW(reader.rwops, 0);
-			reader.Free();
+			IntPtr surface = SDL_image.IMG_Load_RW(
+				FakeRWops.Alloc(stream),
+				1
+			);
 			if (surface == IntPtr.Zero)
 			{
 				// File not found, supported, etc.
@@ -1448,9 +1540,11 @@ namespace Microsoft.Xna.Framework
 				width,
 				height
 			);
-			FakeRWops writer = new FakeRWops(stream);
-			SDL_image.IMG_SavePNG_RW(surface, writer.rwops, 0);
-			writer.Free();
+			SDL_image.IMG_SavePNG_RW(
+				surface,
+				FakeRWops.Alloc(stream),
+				1
+			);
 			SDL.SDL_FreeSurface(surface);
 		}
 
@@ -1482,9 +1576,12 @@ namespace Microsoft.Xna.Framework
 			SDL.SDL_FreeSurface(surface);
 			surface = temp;
 
-			FakeRWops writer = new FakeRWops(stream);
-			SDL_image.IMG_SaveJPG_RW(surface, writer.rwops, 0, quality);
-			writer.Free();
+			SDL_image.IMG_SaveJPG_RW(
+				surface,
+				FakeRWops.Alloc(stream),
+				1,
+				quality
+			);
 			SDL.SDL_FreeSurface(surface);
 		}
 
@@ -1568,7 +1665,7 @@ namespace Microsoft.Xna.Framework
 			return result;
 		}
 
-		private class FakeRWops
+		private static class FakeRWops
 		{
 			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 			private delegate long SizeFunc(IntPtr context);
@@ -1596,6 +1693,9 @@ namespace Microsoft.Xna.Framework
 				IntPtr num
 			);
 
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate int CloseFunc(IntPtr context);
+
 			[StructLayout(LayoutKind.Sequential)]
 			private struct PartialRWops
 			{
@@ -1603,51 +1703,57 @@ namespace Microsoft.Xna.Framework
 				public IntPtr seek;
 				public IntPtr read;
 				public IntPtr write;
+				public IntPtr close;
 			}
 
-			[DllImport("SDL2.dll", CallingConvention = CallingConvention.Cdecl)]
+			[DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)]
 			private static extern IntPtr SDL_AllocRW();
 
-			[DllImport("SDL2.dll", CallingConvention = CallingConvention.Cdecl)]
+			[DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)]
 			private static extern void SDL_FreeRW(IntPtr area);
 
-			public readonly IntPtr rwops;
-			private Stream stream;
-			private byte[] temp;
+			private static readonly Dictionary<IntPtr, Stream> streamMap =
+				new Dictionary<IntPtr, Stream>();
 
-			private SizeFunc sizeFunc;
-			private SeekFunc seekFunc;
-			private ReadFunc readFunc;
-			private WriteFunc writeFunc;
+			// Based on PNG_ZBUF_SIZE default
+			private static byte[] temp = new byte[8192];
 
-			public FakeRWops(Stream stream)
+			private static readonly SizeFunc sizeFunc = size;
+			private static readonly SeekFunc seekFunc = seek;
+			private static readonly ReadFunc readFunc = read;
+			private static readonly WriteFunc writeFunc = write;
+			private static readonly CloseFunc closeFunc = close;
+			private static readonly IntPtr sizePtr =
+				Marshal.GetFunctionPointerForDelegate(sizeFunc);
+			private static readonly IntPtr seekPtr =
+				Marshal.GetFunctionPointerForDelegate(seekFunc);
+			private static readonly IntPtr readPtr =
+				Marshal.GetFunctionPointerForDelegate(readFunc);
+			private static readonly IntPtr writePtr =
+				Marshal.GetFunctionPointerForDelegate(writeFunc);
+			private static readonly IntPtr closePtr =
+				Marshal.GetFunctionPointerForDelegate(closeFunc);
+
+			public static IntPtr Alloc(Stream stream)
 			{
-				this.stream = stream;
-				rwops = SDL_AllocRW();
-				temp = new byte[8192]; // Based on PNG_ZBUF_SIZE default
-
-				sizeFunc = size;
-				seekFunc = seek;
-				readFunc = read;
-				writeFunc = write;
+				IntPtr rwops = SDL_AllocRW();
 				unsafe
 				{
 					PartialRWops* p = (PartialRWops*) rwops;
-					p->size = Marshal.GetFunctionPointerForDelegate(sizeFunc);
-					p->seek = Marshal.GetFunctionPointerForDelegate(seekFunc);
-					p->read = Marshal.GetFunctionPointerForDelegate(readFunc);
-					p->write = Marshal.GetFunctionPointerForDelegate(writeFunc);
+					p->size = sizePtr;
+					p->seek = seekPtr;
+					p->read = readPtr;
+					p->write = writePtr;
+					p->close = closePtr;
 				}
+				lock (streamMap)
+				{
+					streamMap.Add(rwops, stream);
+				}
+				return rwops;
 			}
 
-			public void Free()
-			{
-				SDL_FreeRW(rwops);
-				stream = null;
-				temp = null;
-			}
-
-			private byte[] GetTemp(int len)
+			private static byte[] GetTemp(int len)
 			{
 				if (len > temp.Length)
 				{
@@ -1656,48 +1762,77 @@ namespace Microsoft.Xna.Framework
 				return temp;
 			}
 
-			private long size(IntPtr context)
+			private static long size(IntPtr context)
 			{
 				return -1;
 			}
 
-			private long seek(IntPtr context, long offset, int whence)
+			private static long seek(IntPtr context, long offset, int whence)
 			{
+				Stream stream;
+				lock (streamMap)
+				{
+					stream = streamMap[context];
+				}
 				stream.Seek(offset, (SeekOrigin) whence);
 				return stream.Position;
 			}
 
-			private IntPtr read(
+			private static IntPtr read(
 				IntPtr context,
 				IntPtr ptr,
 				IntPtr size,
 				IntPtr maxnum
 			) {
+				Stream stream;
 				int len = size.ToInt32() * maxnum.ToInt32();
-				len = stream.Read(
-					GetTemp(len),
-					0,
-					len
-				);
-				Marshal.Copy(temp, 0, ptr, len);
+				lock (streamMap)
+				{
+					stream = streamMap[context];
+
+					// Other streams may contend for temp!
+					len = stream.Read(
+						GetTemp(len),
+						0,
+						len
+					);
+					Marshal.Copy(temp, 0, ptr, len);
+				}
 				return (IntPtr) len;
 			}
 
-			private IntPtr write(
+			private static IntPtr write(
 				IntPtr context,
 				IntPtr ptr,
 				IntPtr size,
 				IntPtr num
 			) {
+				Stream stream;
 				int len = size.ToInt32() * num.ToInt32();
-				Marshal.Copy(
-					ptr,
-					GetTemp(len),
-					0,
-					len
-				);
-				stream.Write(temp, 0, len);
+				lock (streamMap)
+				{
+					stream = streamMap[context];
+
+					// Other streams may contend for temp!
+					Marshal.Copy(
+						ptr,
+						GetTemp(len),
+						0,
+						len
+					);
+					stream.Write(temp, 0, len);
+				}
 				return (IntPtr) len;
+			}
+
+			public static int close(IntPtr context)
+			{
+				lock (streamMap)
+				{
+					streamMap.Remove(context);
+				}
+				SDL_FreeRW(context);
+				return 0;
 			}
 		}
 
