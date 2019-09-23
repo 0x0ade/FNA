@@ -116,6 +116,26 @@ namespace Microsoft.Xna.Framework
 					FNAFileEXT.Open = File.Open;
 				}
 			}
+			if (FNADirectoryEXT.Exists == null)
+			{
+				FNADirectoryEXT.Exists = Directory.Exists;
+			}
+			if (FNADirectoryEXT.Delete == null)
+			{
+				FNADirectoryEXT.Delete = Directory.Delete;
+			}
+			if (FNADirectoryEXT.Create == null)
+			{
+				FNADirectoryEXT.Create = path => Directory.CreateDirectory(path);
+			}
+			if (FNADirectoryEXT.GetDirectories == null)
+			{
+				FNADirectoryEXT.GetDirectories = Directory.GetDirectories;
+			}
+			if (FNADirectoryEXT.GetFiles == null)
+			{
+				FNADirectoryEXT.GetFiles = Directory.GetFiles;
+			}
 
 			AppDomain.CurrentDomain.ProcessExit += SDL2_FNAPlatform.ProgramExit;
 			TitleLocation = SDL2_FNAPlatform.ProgramInit();

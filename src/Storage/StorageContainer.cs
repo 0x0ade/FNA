@@ -112,9 +112,9 @@ namespace Microsoft.Xna.Framework.Storage
 			);
 
 			// Create the folders, if needed.
-			if (!Directory.Exists(storagePath))
+			if (!FNADirectoryEXT.Exists(storagePath))
 			{
-				Directory.CreateDirectory(storagePath);
+				FNADirectoryEXT.Create(storagePath);
 			}
 		}
 
@@ -153,9 +153,9 @@ namespace Microsoft.Xna.Framework.Storage
 			string dirPath = Path.Combine(storagePath, directory);
 
 			// Now let's try to create it.
-			if (!Directory.Exists(dirPath))
+			if (!FNADirectoryEXT.Exists(dirPath))
 			{
-				Directory.CreateDirectory(dirPath);
+				FNADirectoryEXT.Create(dirPath);
 			}
 		}
 
@@ -197,7 +197,7 @@ namespace Microsoft.Xna.Framework.Storage
 			string dirPath = Path.Combine(storagePath, directory);
 
 			// Now let's try to delete it.
-			Directory.Delete(dirPath);
+			FNADirectoryEXT.Delete(dirPath);
 		}
 
 		/// <summary>
@@ -237,7 +237,7 @@ namespace Microsoft.Xna.Framework.Storage
 			// Directory name is relative, so combine with our path.
 			string dirPath = Path.Combine(storagePath, directory);
 
-			return Directory.Exists(dirPath);
+			return FNADirectoryEXT.Exists(dirPath);
 		}
 
 		/// <summary>
@@ -269,7 +269,7 @@ namespace Microsoft.Xna.Framework.Storage
 		/// <returns>Array of directory names.</returns>
 		public string[] GetDirectoryNames()
 		{
-			string[] names = Directory.GetDirectories(storagePath);
+			string[] names = FNADirectoryEXT.GetDirectories(storagePath, "*");
 			for (int i = 0; i < names.Length; i += 1)
 			{
 				names[i] = names[i].Substring(storagePath.Length + 1);
@@ -292,7 +292,7 @@ namespace Microsoft.Xna.Framework.Storage
 				throw new ArgumentNullException("Parameter searchPattern must contain a value.");
 			}
 
-			string[] names = Directory.GetDirectories(storagePath, searchPattern);
+			string[] names = FNADirectoryEXT.GetDirectories(storagePath, searchPattern);
 			for (int i = 0; i < names.Length; i += 1)
 			{
 				names[i] = names[i].Substring(storagePath.Length + 1);
@@ -306,7 +306,7 @@ namespace Microsoft.Xna.Framework.Storage
 		/// <returns>Array of file names.</returns>
 		public string[] GetFileNames()
 		{
-			string[] names = Directory.GetFiles(storagePath);
+			string[] names = FNADirectoryEXT.GetFiles(storagePath, "*");
 			for (int i = 0; i < names.Length; i += 1)
 			{
 				names[i] = names[i].Substring(storagePath.Length + 1);
@@ -329,7 +329,7 @@ namespace Microsoft.Xna.Framework.Storage
 				throw new ArgumentNullException("Parameter searchPattern must contain a value.");
 			}
 
-			string[] names = Directory.GetFiles(storagePath, searchPattern);
+			string[] names = FNADirectoryEXT.GetFiles(storagePath, searchPattern);
 			for (int i = 0; i < names.Length; i += 1)
 			{
 				names[i] = names[i].Substring(storagePath.Length + 1);

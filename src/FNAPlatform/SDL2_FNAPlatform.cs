@@ -1525,7 +1525,9 @@ namespace Microsoft.Xna.Framework
 				break;
 			}
 
-			FNALoggerEXT.LogInfo("INTERNAL_SDL_RWFromFile: \"" + path + "\", \"" + modeString + "\"");
+#if DEBUG
+			FNALoggerEXT.LogInfo("SDL_RWFromFile: \"" + path + "\", \"" + modeString + "\"");
+#endif
 			return new RWopsStream(
 				SDL.INTERNAL_SDL_RWFromFile(path, modeString),
 				(access & FileAccess.Read) == FileAccess.Read,
@@ -2649,7 +2651,7 @@ namespace Microsoft.Xna.Framework
 			{
 				// Get all of the individual PS4 LED instances
 				List<string> ledList = new List<string>();
-				string[] dirs = Directory.GetDirectories("/sys/class/leds/");
+				string[] dirs = FNADirectoryEXT.GetDirectories("/sys/class/leds/", "*");
 				foreach (string dir in dirs)
 				{
 					if (	dir.EndsWith("blue") &&
