@@ -1900,6 +1900,8 @@ namespace Microsoft.Xna.Framework
 
 			private static readonly Dictionary<IntPtr, Stream> streamMap =
 				new Dictionary<IntPtr, Stream>();
+			private static readonly Dictionary<IntPtr, RWopsStream> streamFwdMap =
+				new Dictionary<IntPtr, RWopsStream>();
 
 			// Based on PNG_ZBUF_SIZE default
 			private static byte[] temp = new byte[8192];
@@ -1920,21 +1922,65 @@ namespace Microsoft.Xna.Framework
 			private static readonly IntPtr closePtr =
 				Marshal.GetFunctionPointerForDelegate(closeFunc);
 
+			private static readonly SizeFunc sizeFwdFunc = sizeFwd;
+			private static readonly SeekFunc seekFwdFunc = seekFwd;
+			private static readonly ReadFunc readFwdFunc = readFwd;
+			private static readonly WriteFunc writeFwdFunc = writeFwd;
+			private static readonly CloseFunc closeFwdFunc = closeFwd;
+			private static readonly IntPtr sizeFwdPtr =
+				Marshal.GetFunctionPointerForDelegate(sizeFwdFunc);
+			private static readonly IntPtr seekFwdPtr =
+				Marshal.GetFunctionPointerForDelegate(seekFwdFunc);
+			private static readonly IntPtr readFwdPtr =
+				Marshal.GetFunctionPointerForDelegate(readFwdFunc);
+			private static readonly IntPtr writeFwdPtr =
+				Marshal.GetFunctionPointerForDelegate(writeFwdFunc);
+			private static readonly IntPtr closeFwdPtr =
+				Marshal.GetFunctionPointerForDelegate(closeFwdFunc);
+
 			public static IntPtr Alloc(Stream stream)
 			{
 				IntPtr rwops = SDL_AllocRW();
 				unsafe
 				{
 					PartialRWops* p = (PartialRWops*) rwops;
-					p->size = sizePtr;
-					p->seek = seekPtr;
-					p->read = readPtr;
-					p->write = writePtr;
-					p->close = closePtr;
-				}
-				lock (streamMap)
-				{
-					streamMap.Add(rwops, stream);
+					if (stream is RWopsStream)
+					{
+						/* Ideally we could return the RWopsStream's RWops, but native
+						 * code (f.e. SDL2_image) can free it, breaking RWOpsStream.
+						 * 
+						 * Likewise, we could return a close-to-original RWops which
+						 * is equal to the original RWops except for the close function,
+						 * but that is not an option due to how different platforms
+						 * could handle the "hidden" data in the RWops struct differently.
+						 * 
+						 * Might as well minimize the C# footprint and avoid using temp.
+						 * -ade
+						 */
+						RWopsStream rwostream = (RWopsStream) stream;
+						PartialRWops* o = (PartialRWops*) rwostream.rwops;
+						p->size = sizeFwdPtr;
+						p->seek = seekFwdPtr;
+						p->read = readFwdPtr;
+						p->write = writeFwdPtr;
+						p->close = closeFwdPtr;
+						lock (streamFwdMap)
+						{
+							streamFwdMap.Add(rwops, rwostream);
+						}
+					}
+					else
+					{
+						p->size = sizePtr;
+						p->seek = seekPtr;
+						p->read = readPtr;
+						p->write = writePtr;
+						p->close = closePtr;
+						lock (streamMap)
+						{
+							streamMap.Add(rwops, stream);
+						}
+					}
 				}
 				return rwops;
 			}
@@ -1977,8 +2023,7 @@ namespace Microsoft.Xna.Framework
 				IntPtr ptr,
 				IntPtr size,
 				IntPtr maxnum
-			)
-			{
+			) {
 				Stream stream;
 				int len = size.ToInt32() * maxnum.ToInt32();
 				lock (streamMap)
@@ -2002,8 +2047,7 @@ namespace Microsoft.Xna.Framework
 				IntPtr ptr,
 				IntPtr size,
 				IntPtr num
-			)
-			{
+			) {
 				Stream stream;
 				int len = size.ToInt32() * num.ToInt32();
 				lock (streamMap)
@@ -2028,6 +2072,69 @@ namespace Microsoft.Xna.Framework
 				lock (streamMap)
 				{
 					streamMap.Remove(context);
+				}
+				SDL_FreeRW(context);
+				return 0;
+			}
+
+			[ObjCRuntime.MonoPInvokeCallback(typeof(SizeFunc))]
+			private static unsafe long sizeFwd(IntPtr context)
+			{
+				RWopsStream stream;
+				lock (streamFwdMap)
+				{
+					stream = streamFwdMap[context];
+				}
+				return stream.size(stream.rwops);
+			}
+
+			[ObjCRuntime.MonoPInvokeCallback(typeof(SeekFunc))]
+			private static unsafe long seekFwd(IntPtr context, long offset, int whence)
+			{
+				RWopsStream stream;
+				lock (streamFwdMap)
+				{
+					stream = streamFwdMap[context];
+				}
+				return stream.seek(stream.rwops, offset, whence);
+			}
+
+			[ObjCRuntime.MonoPInvokeCallback(typeof(ReadFunc))]
+			private static unsafe IntPtr readFwd(
+				IntPtr context,
+				IntPtr ptr,
+				IntPtr size,
+				IntPtr maxnum
+			) {
+				RWopsStream stream;
+				lock (streamFwdMap)
+				{
+					stream = streamFwdMap[context];
+				}
+				return stream.read(stream.rwops, ptr, size, maxnum);
+			}
+
+			[ObjCRuntime.MonoPInvokeCallback(typeof(WriteFunc))]
+			private static unsafe IntPtr writeFwd(
+				IntPtr context,
+				IntPtr ptr,
+				IntPtr size,
+				IntPtr num
+			) {
+				RWopsStream stream;
+				lock (streamFwdMap)
+				{
+					stream = streamFwdMap[context];
+				}
+				return stream.write(stream.rwops, ptr, size, num);
+			}
+
+			[ObjCRuntime.MonoPInvokeCallback(typeof(CloseFunc))]
+			public static int closeFwd(IntPtr context)
+			{
+				lock (streamFwdMap)
+				{
+					streamFwdMap.Remove(context);
 				}
 				SDL_FreeRW(context);
 				return 0;
@@ -2066,7 +2173,7 @@ namespace Microsoft.Xna.Framework
 					{
 						throw new ObjectDisposedException(null);
 					}
-					return size(RWops);
+					return size(rwops);
 				}
 			}
 
@@ -2090,21 +2197,29 @@ namespace Microsoft.Xna.Framework
 				}
 			}
 
+			public bool IsClosed
+			{
+				get
+				{
+					return closed;
+				}
+			}
+
 			private readonly bool _CanRead;
 			private readonly bool _CanWrite;
 			private bool closed;
 
-			public readonly IntPtr RWops;
+			public readonly IntPtr rwops;
 
-			private readonly SizeFunc size;
-			private readonly SeekFunc seek;
-			private readonly ReadFunc read;
-			private readonly WriteFunc write;
-			private readonly CloseFunc close;
+			public readonly SizeFunc size;
+			public readonly SeekFunc seek;
+			public readonly ReadFunc read;
+			public readonly WriteFunc write;
+			public readonly CloseFunc close;
 
 			public RWopsStream(IntPtr rwops, bool r, bool w)
 			{
-				RWops = rwops;
+				this.rwops = rwops;
 				_CanRead = r;
 				_CanWrite = w;
 				unsafe
@@ -2141,7 +2256,7 @@ namespace Microsoft.Xna.Framework
 				}
 				fixed (byte* ptr = &buffer[offset])
 				{
-					return read(RWops, new IntPtr(ptr), new IntPtr(sizeof(byte)), new IntPtr(count)).ToInt32();
+					return read(rwops, new IntPtr(ptr), new IntPtr(sizeof(byte)), new IntPtr(count)).ToInt32();
 				}
 			}
 
@@ -2151,7 +2266,7 @@ namespace Microsoft.Xna.Framework
 				{
 					throw new ObjectDisposedException(null);
 				}
-				return seek(RWops, offset, (int) origin);
+				return seek(rwops, offset, (int) origin);
 			}
 
 			public override void SetLength(long value)
@@ -2171,7 +2286,7 @@ namespace Microsoft.Xna.Framework
 				}
 				fixed (byte* ptr = &buffer[offset])
 				{
-					write(RWops, new IntPtr(ptr), new IntPtr(sizeof(byte)), new IntPtr(count));
+					write(rwops, new IntPtr(ptr), new IntPtr(sizeof(byte)), new IntPtr(count));
 				}
 			}
 
@@ -2182,7 +2297,7 @@ namespace Microsoft.Xna.Framework
 					return;
 				}
 				closed = true;
-				close(RWops);
+				close(rwops);
 				base.Close();
 			}
 
