@@ -1926,29 +1926,10 @@ namespace Microsoft.Xna.Framework
 				unsafe
 				{
 					PartialRWops* p = (PartialRWops*) rwops;
-					if (stream is RWopsStream)
-					{
-						/* Native code can close our RWops while we won't notice it.
-						 * We thus need to provide a close-to-original RWops which
-						 * simply does not close the original RWops.
-						 * 
-						 * We could as well just use the normal codepath,
-						 * but this spares us a C->C#->C roundtrip.
-						 * -ade
-						 */
-						PartialRWops* o = (PartialRWops*) ((RWopsStream) stream).RWops;
-						p->size = o->size;
-						p->seek = o->seek;
-						p->read = o->read;
-						p->write = o->write;
-					}
-					else
-					{
-						p->size = sizePtr;
-						p->seek = seekPtr;
-						p->read = readPtr;
-						p->write = writePtr;
-					}
+					p->size = sizePtr;
+					p->seek = seekPtr;
+					p->read = readPtr;
+					p->write = writePtr;
 					p->close = closePtr;
 				}
 				lock (streamMap)
