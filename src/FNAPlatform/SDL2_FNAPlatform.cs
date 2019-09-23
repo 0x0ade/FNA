@@ -124,7 +124,7 @@ namespace Microsoft.Xna.Framework
 				titleLocation,
 				"gamecontrollerdb.txt"
 			);
-			if (File.Exists(mappingsDB))
+			if (FNAFileEXT.Exists(mappingsDB))
 			{
 				SDL.SDL_GameControllerAddMappingsFromFile(
 					mappingsDB
@@ -666,7 +666,7 @@ namespace Microsoft.Xna.Framework
 		private static string INTERNAL_GetIconName(string title)
 		{
 			string fileIn = Path.Combine(TitleLocation.Path, title);
-			if (File.Exists(fileIn))
+			if (FNAFileEXT.Exists(fileIn))
 			{
 				// If the title and filename work, it just works. Fine.
 				return fileIn;
@@ -678,7 +678,7 @@ namespace Microsoft.Xna.Framework
 					TitleLocation.Path,
 					INTERNAL_StripBadChars(title)
 				);
-				if (File.Exists(fileIn))
+				if (FNAFileEXT.Exists(fileIn))
 				{
 					return fileIn;
 				}
@@ -1480,6 +1480,59 @@ namespace Microsoft.Xna.Framework
 			return Path.GetPathRoot(storageRoot);
 		}
 
+		public static Stream OpenFile(string path, FileMode mode, FileAccess access, FileShare share)
+		{
+			// flibit is gonna kill me. -ade
+
+			string modeString;
+			switch (mode)
+			{
+			case FileMode.CreateNew:
+				if (FNAFileEXT.Exists(path))
+				{
+					throw new IOException("File \"" + path + "\" already existing.");
+				}
+				modeString = access == FileAccess.Write ? "wb" : "r+b";
+				break;
+
+			case FileMode.Create:
+			case FileMode.Truncate:
+				modeString = access == FileAccess.Write ? "wb" : "r+b";
+				break;
+
+			case FileMode.Open:
+				if (!FNAFileEXT.Exists(path))
+				{
+					throw new IOException("File \"" + path + "\" cannot be found.");
+				}
+				modeString = access == FileAccess.Read ? "rb" : "r+b";
+				break;
+
+			case FileMode.OpenOrCreate:
+			default:
+				if (FNAFileEXT.Exists(path))
+				{
+					modeString = access == FileAccess.Read ? "rb" : "r+b";
+				}
+				else
+				{
+					modeString = access == FileAccess.Write ? "wb" : "r+b";
+				}
+				break;
+
+			case FileMode.Append:
+				modeString = access == FileAccess.Write ? "ab" : "a+b";
+				break;
+			}
+
+			FNALoggerEXT.LogInfo("INTERNAL_SDL_RWFromFile: \"" + path + "\", \"" + modeString + "\"");
+			return new RWopsStream(
+				SDL.INTERNAL_SDL_RWFromFile(path, modeString),
+				(access & FileAccess.Read) == FileAccess.Read,
+				(access & FileAccess.Write) == FileAccess.Write
+			);
+		}
+
 		#endregion
 
 		#region Logging/Messaging Methods
@@ -1792,47 +1845,51 @@ namespace Microsoft.Xna.Framework
 			return result;
 		}
 
+		#endregion
+
+		#region General I/O Methods
+
+		[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+		private delegate long SizeFunc(IntPtr context);
+
+		[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+		private delegate long SeekFunc(
+			IntPtr context,
+			long offset,
+			int whence
+		);
+
+		[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+		private delegate IntPtr ReadFunc(
+			IntPtr context,
+			IntPtr ptr,
+			IntPtr size,
+			IntPtr maxnum
+		);
+
+		[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+		private delegate IntPtr WriteFunc(
+			IntPtr context,
+			IntPtr ptr,
+			IntPtr size,
+			IntPtr num
+		);
+
+		[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+		private delegate int CloseFunc(IntPtr context);
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct PartialRWops
+		{
+			public IntPtr size;
+			public IntPtr seek;
+			public IntPtr read;
+			public IntPtr write;
+			public IntPtr close;
+		}
+
 		private static class FakeRWops
 		{
-			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-			private delegate long SizeFunc(IntPtr context);
-
-			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-			private delegate long SeekFunc(
-				IntPtr context,
-				long offset,
-				int whence
-			);
-
-			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-			private delegate IntPtr ReadFunc(
-				IntPtr context,
-				IntPtr ptr,
-				IntPtr size,
-				IntPtr maxnum
-			);
-
-			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-			private delegate IntPtr WriteFunc(
-				IntPtr context,
-				IntPtr ptr,
-				IntPtr size,
-				IntPtr num
-			);
-
-			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-			private delegate int CloseFunc(IntPtr context);
-
-			[StructLayout(LayoutKind.Sequential)]
-			private struct PartialRWops
-			{
-				public IntPtr size;
-				public IntPtr seek;
-				public IntPtr read;
-				public IntPtr write;
-				public IntPtr close;
-			}
-
 			[DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)]
 			private static extern IntPtr SDL_AllocRW();
 
@@ -1863,6 +1920,11 @@ namespace Microsoft.Xna.Framework
 
 			public static IntPtr Alloc(Stream stream)
 			{
+				if (stream is RWopsStream)
+				{
+					return ((RWopsStream) stream).RWops;
+				}
+
 				IntPtr rwops = SDL_AllocRW();
 				unsafe
 				{
@@ -1918,7 +1980,8 @@ namespace Microsoft.Xna.Framework
 				IntPtr ptr,
 				IntPtr size,
 				IntPtr maxnum
-			) {
+			)
+			{
 				Stream stream;
 				int len = size.ToInt32() * maxnum.ToInt32();
 				lock (streamMap)
@@ -1942,7 +2005,8 @@ namespace Microsoft.Xna.Framework
 				IntPtr ptr,
 				IntPtr size,
 				IntPtr num
-			) {
+			)
+			{
 				Stream stream;
 				int len = size.ToInt32() * num.ToInt32();
 				lock (streamMap)
@@ -1970,6 +2034,127 @@ namespace Microsoft.Xna.Framework
 				}
 				SDL_FreeRW(context);
 				return 0;
+			}
+		}
+
+		private class RWopsStream : Stream
+		{
+			private readonly bool _CanRead;
+			public override bool CanRead
+			{
+				get
+				{
+					return _CanRead;
+				}
+			}
+
+			private readonly bool _CanWrite;
+			public override bool CanWrite {
+				get
+				{
+					return _CanWrite;
+				}
+			}
+
+			public override bool CanSeek
+			{
+				get
+				{
+					return Seek(0, SeekOrigin.Current) != -1;
+				}
+			}
+
+			public override long Length {
+				get
+				{
+					return size(RWops);
+				}
+			}
+
+			public override long Position
+			{
+				get
+				{
+					return Seek(0, SeekOrigin.Current);
+				}
+				set
+				{
+					Seek(value, SeekOrigin.Begin);
+				}
+			}
+
+			public readonly IntPtr RWops;
+			private readonly SizeFunc size;
+			private readonly SeekFunc seek;
+			private readonly ReadFunc read;
+			private readonly WriteFunc write;
+			private readonly CloseFunc close;
+
+			public RWopsStream(IntPtr rwops, bool r, bool w)
+			{
+				RWops = rwops;
+				_CanRead = r;
+				_CanWrite = w;
+				unsafe
+				{
+					PartialRWops* p = (PartialRWops*) rwops;
+					size = (SizeFunc) Marshal.GetDelegateForFunctionPointer(
+						p->size,
+						typeof(SizeFunc)
+					);
+					seek = (SeekFunc) Marshal.GetDelegateForFunctionPointer(
+						p->seek,
+						typeof(SeekFunc)
+					);
+					read = (ReadFunc) Marshal.GetDelegateForFunctionPointer(
+						p->read,
+						typeof(ReadFunc)
+					);
+					write = (WriteFunc) Marshal.GetDelegateForFunctionPointer(
+						p->write,
+						typeof(WriteFunc)
+					);
+					close = (CloseFunc) Marshal.GetDelegateForFunctionPointer(
+						p->close,
+						typeof(CloseFunc)
+					);
+				}
+			}
+
+			public override unsafe int Read(byte[] buffer, int offset, int count)
+			{
+				fixed (byte* ptr = &buffer[offset])
+				{
+					return read(RWops, new IntPtr(ptr), new IntPtr(sizeof(byte)), new IntPtr(count)).ToInt32();
+				}
+			}
+
+			public override long Seek(long offset, SeekOrigin origin)
+			{
+				return seek(RWops, offset, (int) origin);
+			}
+
+			public override void SetLength(long value)
+			{
+				throw new NotSupportedException();
+			}
+
+			public override unsafe void Write(byte[] buffer, int offset, int count)
+			{
+				fixed (byte* ptr = &buffer[offset])
+				{
+					write(RWops, new IntPtr(ptr), new IntPtr(sizeof(byte)), new IntPtr(count));
+				}
+			}
+
+			public override void Close()
+			{
+				close(RWops);
+				base.Close();
+			}
+
+			public override void Flush()
+			{
 			}
 		}
 
@@ -2285,9 +2470,9 @@ namespace Microsoft.Xna.Framework
 			string baseDir = INTERNAL_lightBars[index];
 			try
 			{
-				File.WriteAllText(baseDir + "red/brightness", color.R.ToString());
-				File.WriteAllText(baseDir + "green/brightness", color.G.ToString());
-				File.WriteAllText(baseDir + "blue/brightness", color.B.ToString());
+				FNAFileEXT.WriteAllText(baseDir + "red/brightness", color.R.ToString());
+				FNAFileEXT.WriteAllText(baseDir + "green/brightness", color.G.ToString());
+				FNAFileEXT.WriteAllText(baseDir + "blue/brightness", color.B.ToString());
 			}
 			catch
 			{

@@ -47,9 +47,9 @@ namespace Microsoft.Xna.Framework
 #endif
 			if (Path.IsPathRooted(safeName))
 			{
-				return File.OpenRead(safeName);
+				return FNAFileEXT.Open(safeName, FileMode.Open, FileAccess.Read, FileShare.Read);
 			}
-			return File.OpenRead(Path.Combine(TitleLocation.Path, safeName));
+			return FNAFileEXT.Open(Path.Combine(TitleLocation.Path, safeName), FileMode.Open, FileAccess.Read, FileShare.Read);
 		}
 
 		#endregion
@@ -69,9 +69,9 @@ namespace Microsoft.Xna.Framework
 #endif
 			if (Path.IsPathRooted(safeName))
 			{
-				return File.ReadAllBytes(safeName);
+				return FNAFileEXT.ReadAllBytes(safeName);
 			}
-			return File.ReadAllBytes(Path.Combine(TitleLocation.Path, safeName));
+			return FNAFileEXT.ReadAllBytes(Path.Combine(TitleLocation.Path, safeName));
 		}
 
 		#endregion

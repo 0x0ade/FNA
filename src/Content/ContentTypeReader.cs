@@ -68,7 +68,7 @@ namespace Microsoft.Xna.Framework.Content
 
 		protected internal static string Normalize(string fileName, string[] extensions)
 		{
-			if (File.Exists(fileName))
+			if (FNAFileEXT.Exists(fileName))
 			{
 				return fileName;
 			}
@@ -77,7 +77,7 @@ namespace Microsoft.Xna.Framework.Content
 			{
 				// Concatenate the file name with valid extensions.
 				string fileNamePlusExt = fileName + ext;
-				if (File.Exists(fileNamePlusExt))
+				if (FNAFileEXT.Exists(fileNamePlusExt))
 				{
 					return fileNamePlusExt;
 				}

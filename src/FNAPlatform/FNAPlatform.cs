@@ -94,6 +94,29 @@ namespace Microsoft.Xna.Framework
 				FNALoggerEXT.LogError = Console.WriteLine;
 			}
 
+			// Don't overwrite application file hooks!
+			string fsType = Environment.GetEnvironmentVariable("FNA_FILE_BACKEND");
+			bool fsSDL = fsType == "SDL_RWops";
+			if (FNAFileEXT.Exists == null)
+			{
+				FNAFileEXT.Exists = File.Exists;
+			}
+			if (FNAFileEXT.Delete == null)
+			{
+				FNAFileEXT.Delete = File.Delete;
+			}
+			if (FNAFileEXT.Open == null)
+			{
+				if (fsSDL)
+				{
+					FNAFileEXT.Open = SDL2_FNAPlatform.OpenFile;
+				}
+				else
+				{
+					FNAFileEXT.Open = File.Open;
+				}
+			}
+
 			AppDomain.CurrentDomain.ProcessExit += SDL2_FNAPlatform.ProgramExit;
 			TitleLocation = SDL2_FNAPlatform.ProgramInit();
 		}

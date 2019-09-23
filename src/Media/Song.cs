@@ -90,7 +90,7 @@ namespace Microsoft.Xna.Framework.Media
 
 		internal Song(string fileName, string name = null)
 		{
-			if (!File.Exists(fileName))
+			if (!FNAFileEXT.Exists(fileName))
 			{
 				throw new FileNotFoundException(fileName);
 			}

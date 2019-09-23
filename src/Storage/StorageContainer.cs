@@ -175,7 +175,7 @@ namespace Microsoft.Xna.Framework.Storage
 			string filePath = Path.Combine(storagePath, file);
 
 			// Return a new file with read/write access.
-			return File.Create(filePath);
+			return FNAFileEXT.Open(filePath, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite);
 		}
 
 		#endregion
@@ -215,7 +215,7 @@ namespace Microsoft.Xna.Framework.Storage
 			string filePath = Path.Combine(storagePath, file);
 
 			// Now let's try to delete it.
-			File.Delete(filePath);
+			FNAFileEXT.Delete(filePath);
 		}
 
 		#endregion
@@ -256,7 +256,7 @@ namespace Microsoft.Xna.Framework.Storage
 			string filePath = Path.Combine(storagePath, file);
 
 			// Return a new file with read/write access.
-			return File.Exists(filePath);
+			return FNAFileEXT.Exists(filePath);
 		}
 
 		#endregion
@@ -412,7 +412,7 @@ namespace Microsoft.Xna.Framework.Storage
 			// Filename is relative, so combine with our path.
 			string filePath = Path.Combine(storagePath, file);
 
-			return File.Open(filePath, fileMode, fileAccess, fileShare);
+			return FNAFileEXT.Open(filePath, fileMode, fileAccess, fileShare);
 		}
 
 		#endregion
