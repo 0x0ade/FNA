@@ -2041,20 +2041,18 @@ namespace Microsoft.Xna.Framework
 
 		private class RWopsStream : Stream
 		{
-			private readonly bool _CanRead;
 			public override bool CanRead
 			{
 				get
 				{
-					return _CanRead;
+					return !closed && _CanRead;
 				}
 			}
 
-			private readonly bool _CanWrite;
 			public override bool CanWrite {
 				get
 				{
-					return _CanWrite;
+					return !closed && _CanWrite;
 				}
 			}
 
@@ -2062,13 +2060,17 @@ namespace Microsoft.Xna.Framework
 			{
 				get
 				{
-					return Seek(0, SeekOrigin.Current) != -1;
+					return !closed && Seek(0, SeekOrigin.Current) != -1;
 				}
 			}
 
 			public override long Length {
 				get
 				{
+					if (closed)
+					{
+						throw new ObjectDisposedException(null);
+					}
 					return size(RWops);
 				}
 			}
@@ -2077,15 +2079,28 @@ namespace Microsoft.Xna.Framework
 			{
 				get
 				{
+					if (closed)
+					{
+						throw new ObjectDisposedException(null);
+					}
 					return Seek(0, SeekOrigin.Current);
 				}
 				set
 				{
+					if (closed)
+					{
+						throw new ObjectDisposedException(null);
+					}
 					Seek(value, SeekOrigin.Begin);
 				}
 			}
 
+			private readonly bool _CanRead;
+			private readonly bool _CanWrite;
+			private bool closed;
+
 			public readonly IntPtr RWops;
+
 			private readonly SizeFunc size;
 			private readonly SeekFunc seek;
 			private readonly ReadFunc read;
@@ -2125,6 +2140,10 @@ namespace Microsoft.Xna.Framework
 
 			public override unsafe int Read(byte[] buffer, int offset, int count)
 			{
+				if (closed)
+				{
+					throw new ObjectDisposedException(null);
+				}
 				fixed (byte* ptr = &buffer[offset])
 				{
 					return read(RWops, new IntPtr(ptr), new IntPtr(sizeof(byte)), new IntPtr(count)).ToInt32();
@@ -2133,16 +2152,28 @@ namespace Microsoft.Xna.Framework
 
 			public override long Seek(long offset, SeekOrigin origin)
 			{
+				if (closed)
+				{
+					throw new ObjectDisposedException(null);
+				}
 				return seek(RWops, offset, (int) origin);
 			}
 
 			public override void SetLength(long value)
 			{
+				if (closed)
+				{
+					throw new ObjectDisposedException(null);
+				}
 				throw new NotSupportedException();
 			}
 
 			public override unsafe void Write(byte[] buffer, int offset, int count)
 			{
+				if (closed)
+				{
+					throw new ObjectDisposedException(null);
+				}
 				fixed (byte* ptr = &buffer[offset])
 				{
 					write(RWops, new IntPtr(ptr), new IntPtr(sizeof(byte)), new IntPtr(count));
@@ -2151,12 +2182,18 @@ namespace Microsoft.Xna.Framework
 
 			public override void Close()
 			{
+				if (closed)
+				{
+					return;
+				}
+				closed = true;
 				close(RWops);
 				base.Close();
 			}
 
 			public override void Flush()
 			{
+				// no-op.
 			}
 		}
 
