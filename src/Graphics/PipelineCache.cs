@@ -52,24 +52,24 @@ namespace Microsoft.Xna.Framework.Graphics
 					+ Convert.ToString(i4, 2).PadLeft(32, '0');
 			}
 
-                        bool IEquatable<StateHash>.Equals(StateHash hash)
-                        {
-                                return i1 == hash.i1 && i2 == hash.i2 && i3 == hash.i3 && i4 == hash.i4;
-                        }
+			bool IEquatable<StateHash>.Equals(StateHash hash)
+			{
+				return i1 == hash.i1 && i2 == hash.i2 && i3 == hash.i3 && i4 == hash.i4;
+			}
 
-                        override public bool Equals(object obj)
-                        {
-                                if (obj == null || obj.GetType() != GetType())
-                                        return false;
+			override public bool Equals(object obj)
+			{
+				if (obj == null || obj.GetType() != GetType())
+					return false;
 
-                                StateHash hash = (StateHash) obj;
-                                return i1 == hash.i1 && i2 == hash.i2 && i3 == hash.i3 && i4 == hash.i4;
-                        }
+				StateHash hash = (StateHash) obj;
+				return i1 == hash.i1 && i2 == hash.i2 && i3 == hash.i3 && i4 == hash.i4;
+			}
 
-                        override public int GetHashCode()
-                        {
-                                return unchecked(i1 + i2 + i3 + i4);
-                        }
+			override public int GetHashCode()
+			{
+				return unchecked(i1 + i2 + i3 + i4);
+			}
 		}
 
 		#endregion
